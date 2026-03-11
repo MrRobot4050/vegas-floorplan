@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Interactive Floorplan Polygon Final</title>
+  <style>
+:root {
+  --panel: rgba(15,23,42,.95); --panel-2: rgba(255,255,255,.97); --text:#e5e7eb; --muted:#94a3b8;
+  --border: rgba(148,163,184,.25); --available: rgba(34,197,94,.34); --available-stroke:#16a34a;
+  --sold: rgba(239,68,68,.34); --sold-stroke:#dc2626; --tour: rgba(59,130,246,.34); --tour-stroke:#2563eb;
+  --meeting: rgba(250,204,21,.34); --meeting-stroke:#ca8a04; --none: rgba(255,255,255,.01); --none-stroke: rgba(15,23,42,.08);
+  --shadow: 0 20px 50px rgba(0,0,0,.28); --radius: 18px;
+}
+* { box-sizing: border-box; }
+body { margin:0; font-family: Inter, Arial, sans-serif; background:linear-gradient(180deg,#e2e8f0 0%,#cbd5e1 100%); min-height:100vh; display:grid; grid-template-columns:360px 1fr; color:#0f172a; }
+.sidebar { background:var(--panel); color:var(--text); padding:20px; display:flex; flex-direction:column; gap:16px; border-right:1px solid var(--border); }
+.sidebar h1 { margin:0; font-size:1.35rem; }
+.sidebar p { margin:0; color:var(--muted); line-height:1.45; font-size:.95rem; }
+.card { background:rgba(255,255,255,.06); border:1px solid var(--border); border-radius:var(--radius); padding:14px; display:grid; gap:10px; }
+.legend { display:grid; gap:10px; }
+.legend-item { display:flex; align-items:center; gap:10px; font-size:.94rem; }
+.swatch { width:18px; height:18px; border-radius:6px; border:2px solid transparent; flex:0 0 auto; }
+.swatch.available { background:var(--available); border-color:var(--available-stroke); }
+.swatch.sold { background:var(--sold); border-color:var(--sold-stroke); }
+.swatch.tour { background:var(--tour); border-color:var(--tour-stroke); }
+.swatch.meeting { background:var(--meeting); border-color:var(--meeting-stroke); }
+.swatch.none { background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.28); }
+button {
+  appearance:none; border:0; background:white; color:#0f172a; border-radius:14px; padding:12px 14px; cursor:pointer; font-weight:600;
+  box-shadow:0 6px 18px rgba(15,23,42,.12); transition:transform .15s ease;
+}
+button:hover { transform:translateY(-1px); }
+button.secondary { background:rgba(255,255,255,.08); color:var(--text); border:1px solid var(--border); box-shadow:none; }
+.main { padding:20px; overflow:auto; }
+.canvas-wrap { width:min(1220px, calc(100vw - 430px)); min-width:860px; background:var(--panel-2); border-radius:24px; box-shadow:var(--shadow); overflow:hidden; border:1px solid rgba(15,23,42,.08); }
+.topbar { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:rgba(255,255,255,.95); border-bottom:1px solid rgba(15,23,42,.08); gap:12px; flex-wrap:wrap; }
+.topbar .title { font-weight:700; font-size:1rem; }
+.topbar .meta { color:#64748b; font-size:.92rem; }
+.floorplan { position:relative; width:100%; aspect-ratio:811 / 649; background:#d9d9d9; }
+.floorplan img, .floorplan svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+.office { fill:var(--none); stroke:var(--none-stroke); stroke-width:1.5; cursor:pointer; transition:fill .2s ease, stroke .2s ease, filter .2s ease; vector-effect:non-scaling-stroke; }
+.office:hover { filter:brightness(1.05); stroke-width:2.2; }
+.office.available { fill:var(--available); stroke:var(--available-stroke); }
+.office.sold { fill:var(--sold); stroke:var(--sold-stroke); }
+.office.tour { fill:var(--tour); stroke:var(--tour-stroke); }
+.office.meeting { fill:var(--meeting); stroke:var(--meeting-stroke); }
+.office.selected { stroke-width:3.1; filter:drop-shadow(0 0 5px rgba(15,23,42,.24)); }
+.office.filtered-out { opacity:.12; }
+.office-label, .office-sub-label { pointer-events:none; text-anchor:middle; fill:#0f172a; paint-order:stroke; stroke:rgba(255,255,255,.88); stroke-width:2px; stroke-linejoin:round; }
+.office-label { font:700 10px/1 Inter, Arial, sans-serif; }
+.office-sub-label { font:600 8px/1 Inter, Arial, sans-serif; fill:#1f2937; }
+.label-muted { opacity:.22; }
+.note { font-size:.85rem; color:var(--muted); line-height:1.45; }
+.pill-row { display:flex; flex-wrap:wrap; gap:8px; }
+.pill { display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:7px 10px; font-size:.84rem; background:rgba(255,255,255,.08); border:1px solid var(--border); color:var(--text); }
+.stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.stat { background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:14px; padding:10px; }
+.stat .label { font-size:.76rem; color:var(--muted); margin-bottom:4px; }
+.stat .value { font-size:1.1rem; font-weight:700; color:var(--text); }
+.toolbar { display:grid; gap:10px; }
+.toolbar input, .toolbar select, textarea {
+  width:100%; border-radius:14px; border:1px solid var(--border); background:rgba(2,6,23,.35); color:var(--text); padding:12px;
+  font:500 .9rem/1.4 Inter, Arial, sans-serif;
+}
+textarea { min-height:120px; resize:vertical; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.84rem; }
+.menu {
+  position:absolute; z-index:10; background:rgba(255,255,255,.98); border:1px solid rgba(15,23,42,.12); border-radius:18px;
+  box-shadow:var(--shadow); min-width:210px; padding:12px; display:none;
+}
+.menu h3 { margin:0 0 10px; font-size:.98rem; color:#0f172a; }
+.menu .status-buttons { display:grid; gap:10px; }
+.menu .status-buttons button { text-align:left; border:1px solid rgba(15,23,42,.08); box-shadow:none; padding:10px 12px; }
+.menu .status-buttons button[data-status="available"] { background:rgba(34,197,94,.12); }
+.menu .status-buttons button[data-status="sold"] { background:rgba(239,68,68,.12); }
+.menu .status-buttons button[data-status="tour"] { background:rgba(59,130,246,.12); }
+.menu .status-buttons button[data-status="meeting"] { background:rgba(250,204,21,.18); }
+.menu .status-buttons button[data-status="none"] { background:rgba(148,163,184,.10); }
+@media (max-width:1080px) {
+  body { grid-template-columns:1fr; }
+  .canvas-wrap { width:100%; min-width:0; }
+  .main { padding-top:0; }
+}
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div>
+      <h1>Interactive Office Floorplan</h1>
+      <p>Polygon-traced click zones from your manual room outlines. Hallways and the skipped storage room are excluded.</p>
+    </div>
+
+    <div class="card">
+      <div id="selectionInfo"><strong>No office selected</strong><div class="note">Click an office to edit its status.</div></div>
+      <div class="pill-row">
+        <span class="pill"><span class="swatch available"></span> Available</span>
+        <span class="pill"><span class="swatch sold"></span> Sold</span>
+        <span class="pill"><span class="swatch tour"></span> Tour Path</span>
+        <span class="pill"><span class="swatch meeting"></span> Meeting Room</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <strong>Live Center Totals</strong>
+      <div class="stats-grid">
+        <div class="stat"><div class="label">Available</div><div class="value" id="statAvailable">0</div></div>
+        <div class="stat"><div class="label">Sold</div><div class="value" id="statSold">0</div></div>
+        <div class="stat"><div class="label">Tour Path</div><div class="value" id="statTour">0</div></div>
+        <div class="stat"><div class="label">Occupancy</div><div class="value" id="statOccupancy">0%</div></div>
+      </div>
+      <div class="note">Occupancy excludes rooms marked Meeting Room.</div>
+    </div>
+
+    <div class="card toolbar">
+      <strong>Tools</strong>
+      <input id="searchOffice" type="text" placeholder="Search office number, like 952" />
+      <select id="filterMode">
+        <option value="all">Show all offices</option>
+        <option value="available">Show only available</option>
+        <option value="sold">Show only sold</option>
+        <option value="tour">Show only tour path</option>
+        <option value="meeting">Show only meeting rooms</option>
+      </select>
+      <button id="focusBtn" class="secondary">Focus searched office</button>
+      <button id="exportPngBtn">Export PNG snapshot</button>
+    </div>
+
+    <div class="card">
+      <strong>Legend</strong>
+      <div class="legend">
+        <div class="legend-item"><span class="swatch none"></span> No status</div>
+        <div class="legend-item"><span class="swatch available"></span> Available</div>
+        <div class="legend-item"><span class="swatch sold"></span> Sold</div>
+        <div class="legend-item"><span class="swatch tour"></span> Tour Path</div>
+        <div class="legend-item"><span class="swatch meeting"></span> Meeting Room</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <button id="clearAllBtn" class="secondary">Clear all statuses</button>
+      <button id="exportBtn">Export status JSON</button>
+      <button id="importBtn" class="secondary">Import status JSON</button>
+      <textarea id="jsonBox" placeholder="Exported office statuses will appear here"></textarea>
+      <div class="note">Statuses save in local browser storage automatically.</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="canvas-wrap">
+      <div class="topbar">
+        <div>
+          <div class="title">Las Vegas Floorplan Status Map</div>
+          <div class="meta">Polygon-mapped version using your traced JSON geometry and confirmed office numbering.</div>
+        </div>
+      </div>
+      <div class="floorplan" id="floorplanWrap">
+        <img id="floorplanImg" alt="Floorplan" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
+HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
+MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAKJAywDASIA
+AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA
+AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3
+ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm
+p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEB
+AQEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx
+BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK
+U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3
+uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD2qiii
+gAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKK
+ACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooq1Z6fPd2qxwyEknkA9G
+AAJ/AT0FAGTRXQ2+kQ6r4eg0+y3L53+kFYYs4+Qj5mB+Xn5f4vXOBXlN3YXFjci8upQ8MZ3JG5wqD
+OQByR9etAHUUVPR0S4ukxCzTRNn53Q54BIAyc59sHNQ0AFFFFABRRRQAUUUUAFFFFABRRRQAUUUU
+AFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQ
+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
+iigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKK
+KKACiiigAooooAKKKKACiiigAooooA+rPg/8AGvTfiz4H0LXdMtbj7He6ekgiQjAcvKjA5BGMg16P
+428b6b4V0mW4uV8vUWiQfiW7H4f/rV4fRX0eFnyn7BRRRQByOp/GfR9AiaKfWdPjuE4WGaA7V9P+W
+vHH4V5hqGqalqV/c3V7fTSXF1KzyTXEzFndjyST1JqrRQAUUV9H/sQfCnXfhd8RL/T9Vgb7NfTeTa
+PjKkD5XI5x6g/j70Afqn4M+M2n/F3wVo+s6Ta3H2S+tbmB4wM5jmX5W7Y4B9f0rn9X+IWjaVFd6hr
+FhbQMcB5pFGFYDgD5sVWooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKK
+ACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoooo
+A/T/AMEfHfTvjH4J0zUbW5+z3llOgQlM4jvJ/lX3GMjA69q8x8c/EbQvh3pEmp6xYuSBjFtAOR5T/
+3mA6j/Z9h1rzmivf4WfIfsMFFFFAHEeMfjb4b8DaXHaX2u6fBJL9xLqA4J9vU/ka8w1TU9S1S/uLq
+9vppeS6mZ5ormZi0jHkk9SaYaKACvpL9jPwPq3xA+LMHia4if7LdW0fkNnJlTHKx7YGfUHqK+P6KA
+P0n+EXxX0n4ha7puma3afYZs+fcwMUSQ56knoa5nUfij4Z1M4u9Z02WxQDfb3MLQn3A7E/jXlVFAH
+37+z3r2v/Fz4Y2Fvq+nn7Lf2jDy3Y4Vn4wR6n9a6f4y/G2x+HPhvTbS20u+uPtn2bd5iucM7D6jB4
+I9B0ryaiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigA
+ooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA+ifgz8Q
+NO+JngWw1e3s7eS4eWRriJgVd8cL+HuPepf2jPi/J8CvhdcahDF5ms3is8ccf8ABHGvQfkYH5V5nR
+XQ4mXKP2CiiigDkPjB8XYfA2g2uqadY3H2u5u8FaAcM8MZP4j9K820fUdT0u4u7PVLuWW3uJ2knhe
+NizMx5BB4Ip1FABX6NfsN+AfEHxR+Ff/CUa5F5drfI6Qv2W0jPziL/AH2P+fSvktq2dV1XU9L1Jre
+91G8S2uJ1VWjkdQykEhlIyCPQjmgD6u8JfG2z+LvgzT9Ms7ZLz7Lc2jJHIcjCyLtB/3lBr1n4m/Ga
+x+EPhjTbS60u+uPtn2f7xyucM7D6jB6H8q8qooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKA
+CiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA
+KKKKACiiigAooooAKK0tR0u50fW7jS7wYkuJnWKMBgQwJY4B9aAOXor6B/Z0+HuifEz4OW+n6newf
+aL4SSE73BK5Q/qGPH519A6NrWgfE3w5Y6nrFpcSLNGoVki8xv0wcAfhQB8oUV9M/szeCtS8YeIb/x
+N4gWO88Rafh7BLB4j4BDBw2CD6dSa+lv2Z/AVnr3wy8I6K1y4lkg8+9iP3sN/rIGPuArPrzQB+T1F
+fS37M3g7U/Gfwn0TV9UkxPbeS8TsyqWclmTlQB7Gva/g98NLH4I6F9nurdb3xPqVv5dxIPu6d0E8Z
+9QQP89KaAPlCivqL9mz4df8JR8RvHmv3oj8uyW3jhcj5Q7fN/vD6YzXrP7Q/xD8OeE/GWsW+p6LqD
+R2dqN+n2jVZZ5fn8+Q4Iwe2AMn2oA+HaK+rP2HfB1r8L/iJ4A8SX7A/ZdTl+0z7QOIgJgQzkDj0xj
+vXytQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUA
+FFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH17+zl
+8WvD4+J3hTW9Ut7W4hQxTy+bE2MnA+b8Cayf2gfj7pfw08D6Pf6ZqUdlpl2jASx+7u9f8AiT/4muP
+orocTLlH7BRRRQByHxG+Lvhn4M39qp1nTI4LgukkrufmRe4Hse4xmuA1XUNS1K/uLq9vppeS6mZ5p
+rmZi0jHkk9SaYaKACvp79iXwJq37NvxM8I2utWAg1L7WQ/2mzkf57hP8A2Qf8+9fNFFAHotFabqOo
+31ncXd/dzTXF1KzyTXEzFndjyST1JqWgAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAC
+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAK
+KKKACiiigAooooA/TX4FfEWH45eBrTUNQtbj7PfwyAGVx87wL6E8YA9RXr3jj4x6b4E8I6fZaZb3P
+2S9lAJmk4V1HfH1wa8Foo8DPmiiigDk/F3xJ8N+D9Lkt9R1G3tbcjL7ZMkEn+6fmP6V5xqWp6lqV9
+cXV7fTSXF1KzyXXEzFndjyST1JqA0UAfR37Dnwb1LxF+JvxAl8TZ8j7JdN5Ef3vMg2j8xX6FfBz4j
+2/wAsvg3q+r34xJdanfM0f+8cMgP4rj/gP84NfB9FAH1D+zX8R9Q+FXxL1fT9YvfP+zXj+TbOW2xj
+Mjj05yPwr6g+I3xV0r4ceBrfVNMtbj7Le2jLHIcYCyLu+vX8q8foooAKKKKACiiigAooooAKKKKA
+CiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA
+KKKKACiiigAooooAKKKKACiiigAooooAKKKKAP0k+AXxA0T4j6hr+m3Wm6nA9nHfN5sMY4lJ+QKQf
+4SPxr3r4n/G2x+HPhvTbS20u+uPtn2bd5iucM7D6jB4I9B0ryOiivf4WfIfsFFFFAHJ+Jfjj4V8Fa
+XHa32rafBJL92dqA4J9vUfka8z1XUtS1K/uLq9vppeS6mZ5prmZi0jHkk9SaYaKACvp39jrwtqPxI
++MGlavq1v5tlp1w8k0w7vG24f4rD9Qfwr5gop0d5dXEn2e6mM0Q6M7AkfmaAO7or6P/AGY/GupfEz
+4j3Gm3Qzb6VdN5NvGPmMj4B7DHr/k1nfHf4E6R8TfBGq6dptndfZ72MHaowrKCfQ/wB7v0oA+HaK+
+gv2cPA+k/E34fWOma1B5lyP8AhJ7tvMG4DIkf6/KfUH8K+kf2XfCXjLxL8Pbjwr4qt2e10qf7LJ5i
+KdxYnpx2A5/GgD8mKK+kP8Agr+zVpPjzw1rnxC+JaRfbL3UtV8q6l3O6jAdRj1+mK9Q+FH7OnxV1j
+xFb+I9f0R7f7JbbfMCHsRn7v4D60Afx/0UUV9EfsP+DrL4U/GXwNrN/Av9qTXH2WQn+KFAdoP/AHw
+M/hQBw9FFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFA
+BRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQBn6rqW
+p6nqF1eXl9NJcXUrPLeTMdzMx5JJPUmniivQv2XfAA+Jnxe8P2upw+bbaXbP9qtodjkM3/fR6cfnQ
+B8+UV9Bfs0fD6x+G3xL1qws9Njl+xxbtNl3P8An4X+5/OvpDwD8DtU8YfGrxN418TeY5u4XTT7VAc
+7xEAOB/vDkH3HSgD8+qK+gP2dvB2qfE/wAbaVrFxdv5WjJ+zWjjjYf8APM/4V7p+zD4V1T4W+OvFW
+s3lz/AGT5B+zW87fdJj3G4x64xkD8aAPydor3P43fDvQPiF8R9R0vUry1+1X7uZ2I4kUj7w9wfQel
+c1QAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFF
+FFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAHS/Cz4o6d
+8U/Bttpup29v5dlOsnnW0f3VjYn2AznHrXqXgH4weH/g98P7LXdMsrj7NfQ8GaQ4R1J5B6jiuWoo8
+DPmiiigDg9X+LPhnQ4riWG70u3ubk8v5ixQj6qDkegrzrVdQ1LUru4ur29mkuLmVnluZmLO7Hkkk9
+SabRQAUUUVs8B6gUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABR
+RRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAfS
+/wDwd8V6j8Zfj7Z2mqX3m2ltpwmjuM5jeWP8AvA8j8q7jx58V7P4cfD+58QWlwL2W9R5Vlyd+9Sfx
+YDB49MnrXIUV6HCz5Q+oKKKKAON8WfHjwv4Jt7iG58QadJAn3fJcfMfeqgD8v0rz7VdQ1LUru4ur2
+9mkuLmVnluZmLO7Hkkk9SabRQAUUUVs8B6gUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFF
+ABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUU
+AFFFFABRRRQAUUUUAFFFFAH1h8GviBpPw+8Zab4svY7n7de3HlyRCcC2Yf8AtA9fQd6+q/Ff7Rvgb
+wFbwWx1fULm8kX5I7eYhl6dFY5/OvEqK9fBz5A9Yooor4M+hCiiigAooooAKKKKACiiigAooooAK
+KKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAo
+oooAKKKKACiiigAooooAKKKKACiiigAooooAKK+gf2Q/iLa/F/4jX2l3L+VZaTF5EsQPV3GVb8gA
+fhXyTRXQ4WfKFSiiigD6u+GHxA8I/Fa7S31O0+0TNkW93I8caD0Q5P5V6Z8QfjBoPwp0i1sNV1Gb7
+PcQY+zWo+WKQ9Sp4B+g5rySivQ4WfKHR0UUV8gfWBRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRR
+QAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFF
+ABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAHpnxW+J2k/Cf4f6rrF2sMdxA0kDnqD95G9wew/lXzVRR
+XrYLjnzBRRRQB9u/Av4j6X8PfFEGmX9nZfaL+XfBch0jYbSAf7xPY+g9q9B+L3xT07x34A0m4t7W4
++y3FkC0QHDsoPp3wP0rw2ivVwefIHrVFFFfBn0IVj6lrWk6NrV1qmo3sVrbW0S3E7nkKoyfYVBRQB
+0XwA+IGk/ELwRq2t6Zc/aL20jMkeBgR5j8i/wC1jP4V9s/tFaVNe/Ba2+zRtLFqa7ZApJ2DkAn8M9
+PavglFfR4efIPiCivpX9if4QWXxC+L1nqGm2in7Nbf6x7sY+Vz95v8A2f8AP6V8uUAfQX7PPxAsfh
+N8TrXStYvPP+zTsvl3blsM7YwD6g9q9Q+M3xW0L4c+G9SttMt7j7Zdv+6izjkQJ6f7I71wFFAH0Z8
+Lfjbqvxf0rS7uws7f7Hf2K7DGu7dFICtt9we2fevWfjR8ddN+Hvh+10/X7G3+zX0XmyS4x5YHUkd8
+Af5V4zRXT4WfMFFFB9oUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFA
+BRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUA
+FFFFAHSfDb4t6T8T/AATqOq6hYfZ72Ajd5YOFVR+R/OvU/F3xz0v4f8Ah+28Q2twL+W8R5Vl6+Yv4
+sBg8+mR0ry6ivQ4WfIHqNFFFfBn0IVj6lrWk6NrV1qmo3sVrbW0S3E7nkKoyfYVBRQBi6nqd1rWpz
+X2o3s13dXs7zTXE7ElndjyST1JqSivD9pD8QNM/4SBvCWl+a5A8+bz8N0Yf3euTnP4VhQAUUUUAFF
+FFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUU
+UUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAHSfDD4n+H/jR4fudM1e0
++0X8JzI4/5aO3/THHqfx7V6z+0t8NIdV/Z98JWl4f9XuB5W7+7Gq57/ACj868Woo8DPkCiiigD7T/
+AGXviFp/xG+LVnpmoWvnWOk3jzzxA52jLAfzP4V7d4r+PGjfG3wPo+l67ZW32e9ukbeVGNssS7T/t
+A9Ce2M18gUV6uDnzh6PRRRXwZ9CFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUA
+FFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQA
+UUUUAFFFFABRRRQBn6rqWp6nqF1eXl9NJcXUrPLeTMdzMx5JJPUmvpL9jb4jQX3ivw7Y3jp5um6jd
+qrN1RwMZ/7YFfKdFfQ4WfKFgooor4w+hCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAK
+KKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAo
+oooAKKKKACiiigAoooor4w9ACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiii
+gAooooAKKKKACiiigAooooAKKKKACiiigAooooA9A8P69qvxQ+MGl+HpcfaZJ5lswP8Aq1+4f8Aj5
+P5V9GfGXxt4f8Ahl4R1fUdSsPst9aQ4KS4x5QHqv1B+tbP7Nvw01f4lfEm58c381z9ptS+4wD7sP8
+Mf/AHvxriuigD8g6K+1P2sP2ZvEv7KPxW1D4hXq+fqVohvNEjOUY4Ml0Py4wR9M19PUAfE1FFFABR
+RRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFF
+FFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUU
+UUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH2f
++zv8PvF/wAZvht4n0rVry8+zXU4k2Qv8AaDHJ/Om/Gr9nTxb8M/CFnr2m6jHYJZQxvDawfMFRjjp7
+k/Z+1fJ9FH1h5MtrE0NxDK8EyBmRhlWGOBUE0lAH2j+wP8ADS28Y+NLnxoTDa6Urh7SQjIMLseM9Q
+f8a+iPjB+xx40+L0EN7YvBbpGlrEJre4QSMC38MmR83qcj6H5cmvJq9n+AX7Pfg34Qa5HYWb6ppVz
+Ahf7Dbl95yM/Op64Jx19T3A7UAfl/RRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFA
+BRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUA
+FFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQA
+UUUUAFFFFABRRRQAUUUUAFFFFAH6cftd6BpX7N/x2jtY7MQQX08pghjZgFI3MFHQnjkD6GqH/BQv4
+V/8AC2f2Xor6AfnabqpVgP7v75P+B5o+Inxm0n9j3x/r/iHUGg1CG8tVjnmaQjYQ0e1j3yR+FfGlF
+AHzxRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUU
+UUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRR
+RQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQB+n3/BQ/x
+18IP2Vf2d4fEeixN9q1WOJjLJjBU7QxP0JwT+VfJtFFAH6of8ABQt9f+N3/BM7x7ql0pNgmmapNGM
+5X5WyM/jXylRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABR
+RRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFF
+FFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUU
+UUAFFFFAHpvwq/aQ1j9n34s6L4m0jVLQ3wh8uymIJWNtmQeWPIBz0NfG1fS37FXgD4W+Lfgf4e0zX
+tMj/AMJVdWvkq7Z2xbmJ7DAr5W1XUdT0HUprvV9SuY7W2iUM8juxVQPYmoaAP2V8e/FrxT8R/F95r
+us6zeXl7dMDFcwSOMyxg5z2Ga8x8f8A7BHib4vWWmXelxWNlNo0cTQ3t2ElVtpAY5/75PoM14JRQB
+pXeq31lqNle3s8txdSs8N1MxZ3Y8kk9SaioaKKK6vY4wooooAKKKKACiiigAooooAKKKKACiiigA
+ooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAC
+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAK
+KKKACiiigAooooAKKKKACiiigAooooAKKKKAP0y/4KgeDNX/aP/ZJ1LxPcxP8AZ9Q0t/O3f8B2r+v
+WvzLr9Yf+Ci/xzuPAv7Fdlq1reBfN1XXA8QDf8AoNt/JDQB8A0UUUAFFFFABRRRQAUUUUAFFFFAB
+RRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAF
+FFFAH6Nf8E+vhjb/HX9tvw34wmh8z+0dGX7PKe0TEBsfX2NP+AsK+bqKKAPv74A+P7L9ln9vLwfrl
+14m+xab4V1WVFZRuESs2M5IPQdM56muQ/bz+Mnh79tr9pTwnq2nW7PpVjaa80iO/vAIgoJ75wc9B
+XzjRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUA
+FFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQA
+UV9C/sS+HP2hf2g/F1r4B8RWHm2FrL9h1eI9o7b5T+FYX7OHxm/4Un8YtA1eUT7Lfv8A6MucfICfm
+5/DJ/nQB+ldFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAF
+FFFAH7Qf8EZ/Hlf7Hv7MPhnVri1+0XXg620iJ2MaSx7Tn8K+Qf2pfjHefslftXeLPD1vCH0Tw1q7/
+AGaAqMsn9xv8K+SKKAP7A+P/AI6+E/7OXwa8QeI5fN1DXIvs0W0gK0M2N3sK/H2vvD9prOn67dxXd
+9LNDcTMHZ3Y8kk9Sa3aKKAH0V9Yf8ABPPQv2rv2mvjlqvwL8WQ+bZ2zG612A4R4M4P5jP4V+wHiD4
+e+B/2f5f2hPF1tP5j3+qWVgXePODvZjzx6dj1r8e6KAP2M+Bv7W/wAaPj3bQ6b4k1C4sWmYqyTL1eM
++v1P4V9caB+1L8LfH/wAEk8IaN4g1uPVrj7Qv2WGROXjPqflZAPxP51+XlFAH6of8FGv2xP+Fp/sr
+XGoQXLf2xf6Z5MSjJ+UKf3f4GvnCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAC
+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA/FqiiigAooooAKKKKAP0C/4JbeFv2tfFPj
+jU/FVr5umaRq72dxM5wJ1dS38x/8AXr5Wr2H4JfGTXv2aPjX4c8V+GJfN1XXIftkbFw0ca/fX+deQ
+UUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH6F/8ABcLw38BP2Cv2RZPGesaakfijWRI2s7
+UjKsp7wL7gEnrxXyrRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAf//Z" />
+        <svg id="svgOverlay" viewBox="0 0 811 649" xmlns="http://www.w3.org/2000/svg" aria-label="Interactive floorplan overlay"></svg>
+        <div class="menu" id="officeMenu" role="dialog" aria-modal="false">
+          <h3 id="menuTitle">Office</h3>
+          <div class="status-buttons">
+            <button type="button" data-status="available">Mark Available</button>
+            <button type="button" data-status="sold">Mark Sold</button>
+            <button type="button" data-status="tour">Mark Tour Path</button>
+            <button type="button" data-status="meeting">Mark Meeting Room</button>
+            <button type="button" data-status="none">Clear Status</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script>
+const STORAGE_KEY = 'floorplan-polygon-final-v1';
+const statuses = ['none','available','sold','tour','meeting'];
+const officeMeta = {"901": {"total": 6, "type": "Meeting"}, "902": {"total": 5, "type": "ESC"}, "903": {"total": 4, "type": "EE"}, "904": {"total": 5, "type": "ESC"}, "905": {"total": 4, "type": "EE"}, "906": {"total": 2, "type": "IS"}, "907": {"total": 4, "type": "EST"}, "908": {"total": 2, "type": "ES"}, "909": {"total": 4, "type": "ESS"}, "910": {"total": 2, "type": "IS"}, "911": {"total": 2, "type": "ES"}, "912": {"total": 2, "type": "IS"}, "913": {"total": 2, "type": "ES"}, "914": {"total": 4, "type": "ESS"}, "915": {"total": 2, "type": "IS"}, "916": {"total": 4, "type": "ESS"}, "917": {"total": 2, "type": "EE"}, "918": {"total": 2, "type": "IS"}, "919": {"total": 2, "type": "EE"}, "920": {"total": 5, "type": "ESC"}, "921": {"total": 2, "type": "ES"}, "922": {"total": 2, "type": "ES"}, "923": {"total": 2, "type": "IS"}, "924": {"total": 2, "type": "IS"}, "925": {"total": 2, "type": "IS"}, "926": {"total": 2, "type": "IS"}, "927": {"total": 2, "type": "IS"}, "928": {"total": 4, "type": "Meeting"}, "929": {"total": 1, "type": "ISI"}, "930": {"total": 2, "type": "IE"}, "931": {"total": 2, "type": "IS"}, "932": {"total": 3, "type": "ISS"}, "933": {"total": 6, "type": "Meeting"}, "934": {"total": 3, "type": "ISS"}, "935": {"total": 3, "type": "ISS"}, "936": {"total": 3, "type": "ISS"}, "937": {"total": 4, "type": "ES"}, "938": {"total": 1, "type": "ISI"}, "939": {"total": 2, "type": "EE"}, "940": {"total": 3, "type": "IST"}, "941": {"total": 2, "type": "ES"}, "942": {"total": 2, "type": "EE"}, "943": {"total": 4, "type": "ES"}, "944": {"total": 4, "type": "ES"}, "945": {"total": 6, "type": "CE"}, "946": {"total": 2, "type": "EE"}, "947": {"total": 2, "type": "IS"}, "948": {"total": 4, "type": "EST"}, "949": {"total": 2, "type": "IS"}, "950": {"total": 2, "type": "ES"}, "951": {"total": 2, "type": "ES"}, "952": {"total": 4, "type": "ESS"}, "953": {"total": 2, "type": "IS"}, "954": {"total": 2, "type": "IS"}, "955": {"total": 6, "type": "Meeting"}, "956": {"total": 2, "type": "ES"}, "957": {"total": 2, "type": "ES"}, "958": {"total": 4, "type": "EST"}, "959": {"total": 2, "type": "EE"}, "960": {"total": 2, "type": "ES"}, "961": {"total": 3, "type": "ESC"}, "962": {"total": 6, "type": "ES"}, "963": {"total": 0, "type": "Storage-adjacent"}, "964": {"total": 2, "type": "IS"}, "965": {"total": 1, "type": "ISI"}, "966": {"total": 2, "type": "IS"}, "967": {"total": 2, "type": "IS"}, "968": {"total": 3, "type": "IST"}, "969": {"total": 2, "type": "IE"}, "970": {"total": 2, "type": "IS"}, "971": {"total": 2, "type": "IE"}, "972": {"total": 0, "type": "Office"}, "973": {"total": 16, "type": "Meeting"}};
+const meetingCapacities = {"928": 4, "933": 6, "955": 6, "901": 6, "973": 16};
+const officeShapes = [{"office": "945", "points": "123.7,538.0 126.7,594.0 59.7,594.0 41.7,577.0 42.7,512.0 97.7,512.0 101.7,538.0"}, {"office": "946", "points": "171.7,539.0 170.7,593.0 128.7,593.0 125.7,540.0"}, {"office": "948", "points": "238.7,593.0 238.7,539.0 171.7,539.0 172.7,594.0"}, {"office": "950", "points": "282.7,594.0 279.7,541.0 234.7,541.0 240.7,595.0"}, {"office": "951", "points": "285.7,539.0 322.7,539.0 325.7,593.0 282.7,593.0"}, {"office": "952", "points": "327.7,538.0 392.7,539.0 392.7,594.0 325.7,593.0"}, {"office": "955", "points": "393.7,539.0 457.7,539.0 457.7,594.0 393.7,594.0"}, {"office": "956", "points": "455.7,539.0 501.7,539.0 501.7,593.0 456.7,593.0"}, {"office": "957", "points": "499.7,538.0 545.7,538.0 545.7,594.0 499.7,594.0"}, {"office": "958", "points": "543.7,539.0 610.7,539.0 610.7,594.0 542.7,594.0"}, {"office": "959", "points": "610.7,541.0 656.7,542.0 655.7,594.0 611.7,594.0"}, {"office": "960", "points": "656.7,538.0 702.7,539.0 702.7,593.0 657.7,593.0"}, {"office": "961", "points": "701.7,514.0 741.7,514.0 741.7,594.0 703.7,594.0"}, {"office": "962", "points": "677.7,444.0 741.7,444.0 741.7,510.0 677.7,510.0"}, {"office": "901", "points": "674.7,373.0 743.7,374.0 742.7,442.0 670.7,442.0"}, {"office": "973", "points": "608.7,374.0 675.7,374.0 675.7,515.0 608.7,515.0"}, {"office": "902", "points": "683.7,196.0 739.7,196.0 739.7,259.0 682.7,252.0"}, {"office": "903", "points": "683.7,132.0 742.7,132.0 742.7,195.0 683.7,195.0"}, {"office": "904", "points": "683.7,52.0 741.7,52.0 741.7,132.0 690.7,132.0 683.7,124.0"}, {"office": "905", "points": "611.7,52.0 683.7,52.0 682.7,106.0 611.7,105.0"}, {"office": "907", "points": "544.7,53.0 613.7,53.0 613.7,106.0 545.7,106.0"}, {"office": "908", "points": "501.7,52.0 549.7,52.0 547.7,106.0 501.7,106.0"}, {"office": "909", "points": "435.5,52.0 502.5,52.0 501.5,105.0 436.5,105.0"}, {"office": "911", "points": "391.5,52.0 435.5,52.0 435.5,106.0 392.5,104.0"}, {"office": "913", "points": "348.5,52.0 394.5,52.0 394.5,105.0 348.5,105.0"}, {"office": "914", "points": "280.5,51.0 349.5,51.0 348.5,106.0 281.5,106.0"}, {"office": "916", "points": "215.5,51.0 280.5,51.0 280.5,106.0 216.5,106.0"}, {"office": "917", "points": "169.5,52.0 216.5,52.0 215.5,104.0 170.5,104.0"}, {"office": "919", "points": "125.5,52.0 172.5,52.0 172.5,106.0 125.5,105.0"}, {"office": "920", "points": "41.5,51.0 124.5,51.0 124.5,112.0 102.5,112.0 101.5,96.0 41.5,96.0 41.5,69.0"}, {"office": "921", "points": "40.5,112.0 100.5,112.0 99.5,155.0 42.5,154.0"}, {"office": "922", "points": "42.5,154.0 100.5,154.0 99.5,195.0 41.5,195.0"}, {"office": "937", "points": "41.5,198.0 100.5,198.0 100.5,260.0 42.5,260.0"}, {"office": "939", "points": "41.5,260.0 102.5,260.0 102.5,301.0 41.5,301.0"}, {"office": "941", "points": "42.5,300.0 99.5,300.0 100.5,343.0 40.5,342.0"}, {"office": "942", "points": "41.5,343.0 100.5,343.0 100.5,384.0 41.5,384.0"}, {"office": "943", "points": "42.7,384.0 100.7,384.0 100.7,447.0 42.7,449.0"}, {"office": "944", "points": "40.7,449.0 99.7,448.0 99.7,510.0 41.7,510.0"}, {"office": "947", "points": "177.7,475.0 230.7,475.0 230.7,513.0 178.7,513.0"}, {"office": "949", "points": "232.7,475.0 285.7,476.0 284.7,514.0 230.7,514.0"}, {"office": "953", "points": "308.7,473.0 360.7,474.0 360.7,515.0 308.7,514.0"}, {"office": "954", "points": "361.7,475.0 414.7,475.0 415.7,515.0 360.7,514.0"}, {"office": "966", "points": "413.7,476.0 468.7,476.0 469.7,514.0 412.7,514.0"}, {"office": "965", "points": "496.7,476.0 530.7,476.0 530.7,514.0 496.7,513.0"}, {"office": "964", "points": "529.7,476.0 581.7,476.0 581.7,515.0 529.7,513.0"}, {"office": "963", "points": "543.7,404.0 583.7,404.0 581.7,452.0 543.7,451.0"}, {"office": "972", "points": "506.7,404.0 543.7,404.0 543.7,451.0 506.7,451.0"}, {"office": "940", "points": "421.7,398.0 469.7,400.0 469.7,450.0 420.7,450.0"}, {"office": "971", "points": "373.7,399.0 421.7,399.0 420.7,452.0 373.7,450.0"}, {"office": "970", "points": "325.7,400.0 373.7,400.0 372.7,450.0 325.7,450.0"}, {"office": "969", "points": "277.7,400.0 325.7,400.0 324.7,452.0 277.7,452.0"}, {"office": "968", "points": "224.7,400.0 277.7,400.0 275.7,452.0 224.7,451.0"}, {"office": "967", "points": "124.7,475.0 177.7,475.0 177.7,513.0 124.7,512.0"}, {"office": "938", "points": "124.7,244.0 165.7,244.0 165.7,284.0 124.7,285.0"}, {"office": "936", "points": "124.7,192.0 175.7,192.0 175.7,244.0 124.7,244.0"}, {"office": "935", "points": "175.7,192.0 225.7,192.0 225.7,244.0 176.7,244.0"}, {"office": "934", "points": "224.7,192.0 277.7,192.0 278.7,244.0 225.7,244.0"}, {"office": "933", "points": "314.5,192.0 386.5,192.0 385.5,245.0 316.5,244.0"}, {"office": "932", "points": "385.5,192.0 440.5,192.0 438.5,243.0 385.5,244.0"}, {"office": "931", "points": "438.5,193.0 482.5,193.0 482.5,244.0 436.5,244.0"}, {"office": "930", "points": "481.5,193.0 529.5,193.0 528.5,244.0 481.5,244.0"}, {"office": "929", "points": "525.5,192.0 557.5,192.0 556.5,244.0 528.5,244.0"}, {"office": "928", "points": "556.5,192.0 615.5,192.0 613.5,253.0 556.5,253.0"}, {"office": "927", "points": "613.5,193.0 656.5,192.0 656.5,244.0 616.5,243.0"}, {"office": "918", "points": "124.5,130.0 178.5,130.0 177.5,170.0 123.5,168.0"}, {"office": "915", "points": "179.5,128.0 231.5,128.0 230.5,168.0 178.5,168.0"}, {"office": "912", "points": "231.5,130.0 285.5,130.0 285.5,168.0 230.5,169.0"}, {"office": "910", "points": "316.5,129.0 372.5,129.0 372.5,168.0 317.5,168.0"}, {"office": "906", "points": "371.5,129.0 425.5,129.0 425.5,168.0 371.5,168.0"}, {"office": "923", "points": "424.5,127.0 476.5,127.0 476.5,168.0 425.5,168.0"}, {"office": "924", "points": "499.5,130.0 552.5,130.0 551.5,168.0 500.5,169.0"}, {"office": "925", "points": "552.5,131.0 605.5,131.0 604.5,168.0 551.5,168.0"}, {"office": "926", "points": "603.5,130.0 658.5,130.0 658.5,169.0 604.5,168.0"}];
+const defaultState = {"928": "meeting", "933": "meeting", "955": "meeting", "901": "meeting", "973": "meeting"};
+
+const svgOverlay = document.getElementById('svgOverlay');
+const floorplanWrap = document.getElementById('floorplanWrap');
+const floorplanImg = document.getElementById('floorplanImg');
+const menu = document.getElementById('officeMenu');
+const menuTitle = document.getElementById('menuTitle');
+const selectionInfo = document.getElementById('selectionInfo');
+const jsonBox = document.getElementById('jsonBox');
+const statAvailable = document.getElementById('statAvailable');
+const statSold = document.getElementById('statSold');
+const statTour = document.getElementById('statTour');
+const statOccupancy = document.getElementById('statOccupancy');
+const searchOffice = document.getElementById('searchOffice');
+const filterMode = document.getElementById('filterMode');
+let selectedOffice = null;
+let officeState = loadState();
+let officeElements = [];
+let labelElements = [];
+
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || JSON.stringify(defaultState)); }
+  catch (e) { return Object.assign({}, defaultState); }
+}
+function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(officeState)); }
+function getOfficeStatus(officeId) { return officeState[officeId] || 'none'; }
+
+function setOfficeStatus(officeId, status) {
+  if (!statuses.includes(status)) return;
+  if (status === 'none') delete officeState[officeId]; else officeState[officeId] = status;
+  applyAllStatuses(); saveState(); updateSelectionPanel(officeId); updateStats(); applyFilter();
+}
+
+function getShapeCenter(shape) {
+  const pts = shape.points.split(' ').map(pair => pair.split(',').map(Number));
+  const sum = pts.reduce((acc, pt) => ({ x: acc.x + pt[0], y: acc.y + pt[1] }), { x: 0, y: 0 });
+  return { x: sum.x / pts.length, y: sum.y / pts.length };
+}
+
+function buildSvg() {
+  const ns = 'http://www.w3.org/2000/svg';
+  svgOverlay.innerHTML = '';
+  labelElements = [];
+  officeShapes.forEach(shape => {
+    const poly = document.createElementNS(ns, 'polygon');
+    poly.setAttribute('class', 'office');
+    poly.setAttribute('id', 'o-' + shape.office);
+    poly.setAttribute('data-office', shape.office);
+    poly.setAttribute('points', shape.points);
+    svgOverlay.appendChild(poly);
+
+    const center = getShapeCenter(shape);
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('class', 'office-label');
+    text.setAttribute('x', center.x);
+    text.setAttribute('y', center.y - 2);
+    text.textContent = shape.office;
+    svgOverlay.appendChild(text);
+    labelElements.push({ office: shape.office, el: text });
+
+    const cap = meetingCapacities[shape.office];
+    const meta = officeMeta[shape.office] || {};
+    const subVal = cap ? (cap + ' Seats') : ((meta.total || 0) > 0 ? (meta.total + ' WS') : '');
+    if (subVal) {
+      const sub = document.createElementNS(ns, 'text');
+      sub.setAttribute('class', 'office-sub-label');
+      sub.setAttribute('x', center.x);
+      sub.setAttribute('y', center.y + 10);
+      sub.textContent = subVal;
+      svgOverlay.appendChild(sub);
+      labelElements.push({ office: shape.office, el: sub });
+    }
+  });
+  officeElements = Array.from(document.querySelectorAll('.office'));
+  officeElements.forEach(el => el.addEventListener('click', event => {
+    event.stopPropagation();
+    openMenuForOffice(el, event.clientX, event.clientY);
+  }));
+}
+
+function applyAllStatuses() {
+  officeElements.forEach(el => {
+    const officeId = el.dataset.office;
+    el.classList.remove('available','sold','tour','meeting','selected');
+    const status = getOfficeStatus(officeId);
+    if (status !== 'none') el.classList.add(status);
+    if (selectedOffice === officeId) el.classList.add('selected');
+  });
+}
+
+function updateSelectionPanel(officeId) {
+  if (!officeId) {
+    selectionInfo.innerHTML = '<strong>No office selected</strong><div class="note">Click an office to edit its status.</div>';
+    return;
+  }
+  const status = getOfficeStatus(officeId);
+  let statusLabel = 'No status';
+  if (status === 'available') statusLabel = 'Available';
+  if (status === 'sold') statusLabel = 'Sold';
+  if (status === 'tour') statusLabel = 'Tour Path';
+  if (status === 'meeting') statusLabel = 'Meeting Room';
+  const meta = officeMeta[officeId] || {};
+  const cap = meetingCapacities[officeId];
+  const total = cap ? (cap + ' Seats') : ((meta.total || 0) > 0 ? (meta.total + ' WS') : 'No WS loaded');
+  selectionInfo.innerHTML = '<strong>Office ' + officeId + '</strong>' +
+    '<div class="note">Current status: <b>' + statusLabel + '</b></div>' +
+    '<div class="note">Type: <b>' + (meta.type || '—') + '</b></div>' +
+    '<div class="note">Capacity: <b>' + total + '</b></div>';
+}
+
+function updateStats() {
+  let available = 0, sold = 0, tour = 0, includedForOcc = 0;
+  officeShapes.forEach(shape => {
+    const status = getOfficeStatus(shape.office);
+    if (status === 'available') available += 1;
+    if (status === 'sold') sold += 1;
+    if (status === 'tour') tour += 1;
+    if (status !== 'meeting') includedForOcc += 1;
+  });
+  const occupancy = includedForOcc ? Math.round((sold / includedForOcc) * 100) : 0;
+  statAvailable.textContent = available;
+  statSold.textContent = sold;
+  statTour.textContent = tour;
+  statOccupancy.textContent = occupancy + '%';
+}
+
+function openMenuForOffice(officeEl, clientX, clientY) {
+  selectedOffice = officeEl.dataset.office;
+  applyAllStatuses();
+  updateSelectionPanel(selectedOffice);
+  menuTitle.textContent = 'Office ' + selectedOffice;
+  const wrapRect = floorplanWrap.getBoundingClientRect();
+  const menuWidth = 225, menuHeight = 250;
+  let left = clientX - wrapRect.left + 12;
+  let top = clientY - wrapRect.top + 12;
+  if (left + menuWidth > wrapRect.width - 10) left = wrapRect.width - menuWidth - 10;
+  if (top + menuHeight > wrapRect.height - 10) top = wrapRect.height - menuHeight - 10;
+  if (left < 10) left = 10;
+  if (top < 10) top = 10;
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.style.display = 'block';
+}
+
+function applyFilter() {
+  const mode = filterMode.value;
+  officeElements.forEach(el => {
+    const status = getOfficeStatus(el.dataset.office);
+    const hidden = mode !== 'all' && status !== mode;
+    el.classList.toggle('filtered-out', hidden);
+  });
+  labelElements.forEach(item => {
+    const status = getOfficeStatus(item.office);
+    const hidden = mode !== 'all' && status !== mode;
+    item.el.classList.toggle('label-muted', hidden);
+  });
+}
+
+function focusOffi
